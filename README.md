@@ -2,3 +2,4 @@
 Chores at a glance - earn prizes for doing chores!
 
 Making housework fun :) 
+ 
