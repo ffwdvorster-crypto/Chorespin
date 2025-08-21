@@ -28,7 +28,7 @@ jobs:
           cache: npm
 
       - name: Install deps
-        run: npm ci
+        run: npm install
 
       - name: Build site
         # For Vite/React: outputs to ./dist
