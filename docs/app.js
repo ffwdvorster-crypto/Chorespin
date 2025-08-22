@@ -296,6 +296,9 @@ export async function seedDefaultsForHousehold(householdId) {
   if (rewardsErr) throw rewardsErr;
   return true;
 }
+// Example usage after you resolve the active household:
+await seedDefaultsForHousehold(activeHouseholdId);
+alert('Default chores and rewards loaded!');
 
 function runTimer(endsAt) {
   clearInterval(tmr);
