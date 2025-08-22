@@ -1,24 +1,35 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // UI refs
 const authRow = document.getElementById('authRow');
+const loginPanel = document.getElementById('loginPanel');
+const logoutRow = document.getElementById('logoutRow');
+const emailEl = document.getElementById('email');
+const passEl = document.getElementById('password');
+const btnSignin = document.getElementById('btnSignin');
+const btnSignup = document.getElementById('btnSignup');
+const btnLogout = document.getElementById('btnLogout');
+
 const memberRow = document.getElementById('memberRow');
 const memberSelect = document.getElementById('memberSelect');
+const refreshBtn = document.getElementById('refresh');
+
 const eligibleWrap = document.getElementById('eligible');
 const whoEl = document.getElementById('who');
 const wheelEl = document.getElementById('wheel');
+
 const spinRow = document.getElementById('spinRow');
 const spinBtn = document.getElementById('spin');
 const resultPill = document.getElementById('result');
 const startBtn = document.getElementById('start');
+
 const activeRow = document.getElementById('activeRow');
 const activeTitle = document.getElementById('activeTitle');
 const activeTime = document.getElementById('activeTime');
 const submitBtn = document.getElementById('submit');
-const refreshBtn = document.getElementById('refresh');
+
 const statusEl = document.getElementById('status');
 
 let session = null;
@@ -31,16 +42,20 @@ let tmr = null;
 
 init();
 
+// Re-run UI when auth state changes (e.g., after sign-in/signup/logout)
+supabase.auth.onAuthStateChange((_event, sess) => {
+  session = sess;
+  renderAuth();
+  if (session) loadMembers();
+});
+
 async function init() {
-  authRow.textContent = 'Checking session…';
   const { data: s } = await supabase.auth.getSession();
   session = s.session;
-  if (!session) {
-    authRow.innerHTML = `You’re not signed in. <a href="./accept.html" style="color:#6ee7b7">Use an invite link</a> or sign in first.`;
-    return;
+  renderAuth();
+  if (session) {
+    await loadMembers();
   }
-  authRow.innerHTML = `Signed in as <span class="success">${session.user.email}</span>`;
-  await loadMembers();
   refreshBtn.onclick = () => loadAll();
   memberSelect.onchange = () => {
     currentMember = members.find(m => m.id === memberSelect.value);
@@ -49,10 +64,70 @@ async function init() {
   spinBtn.onclick = onSpin;
   startBtn.onclick = startAssignment;
   submitBtn.onclick = submitAssignment;
+
+  btnSignin.onclick = handleSignin;
+  btnSignup.onclick = handleSignup;
+  btnLogout.onclick = handleLogout;
+}
+
+function renderAuth() {
+  if (!session) {
+    authRow.innerHTML = `You’re not signed in. Use an <a href="./accept.html">invite link</a> or sign in below.`;
+    loginPanel.style.display = '';
+    logoutRow.style.display = 'none';
+    memberRow.style.display = 'none';
+    eligibleWrap.style.display = 'none';
+    spinRow.style.display = 'none';
+    activeRow.style.display = 'none';
+  } else {
+    authRow.innerHTML = `Signed in as <span class="success">${session.user.email}</span>`;
+    loginPanel.style.display = 'none';
+    logoutRow.style.display = '';
+  }
+}
+
+async function handleSignin() {
+  try {
+    statusEl.textContent = 'Signing in…';
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailEl.value.trim(),
+      password: passEl.value
+    });
+    if (error) throw error;
+    statusEl.textContent = '✅ Signed in.';
+  } catch (e) {
+    statusEl.textContent = '❌ ' + (e.message || e);
+  }
+}
+
+async function handleSignup() {
+  try {
+    statusEl.textContent = 'Creating account…';
+    const email = emailEl.value.trim();
+    const password = passEl.value;
+
+    // Sign up, then sign in (covers projects with email confirmation ON)
+    const { error: e1 } = await supabase.auth.signUp({ email, password });
+    if (e1) throw e1;
+    const { error: e2 } = await supabase.auth.signInWithPassword({ email, password });
+    if (e2) throw e2;
+
+    statusEl.textContent = '✅ Account ready. You are signed in.';
+  } catch (e) {
+    statusEl.textContent = '❌ ' + (e.message || e);
+  }
+}
+
+async function handleLogout() {
+  try {
+    await supabase.auth.signOut();
+    statusEl.textContent = '👋 Logged out.';
+  } catch (e) {
+    statusEl.textContent = '❌ ' + (e.message || e);
+  }
 }
 
 async function loadMembers() {
-  // pull all member rows tied to the signed-in user
   const { data, error } = await supabase
     .from('members')
     .select('*')
@@ -61,10 +136,10 @@ async function loadMembers() {
   if (error) { statusEl.textContent = '❌ '+error.message; return; }
   members = data || [];
   if (!members.length) {
-    authRow.innerHTML += `<br><span class="muted">No member profile yet. Use an invite link to join a household.</span>`;
+    memberRow.style.display = 'none';
+    statusEl.textContent = 'No member profile yet. Use an invite link to join a household.';
     return;
   }
-  // show selector if multiple
   memberRow.style.display = '';
   memberSelect.innerHTML = members.map(m => `<option value="${m.id}">${m.display_name} (${m.role})</option>`).join('');
   currentMember = members[0];
@@ -91,7 +166,7 @@ async function loadActive() {
     .limit(1)
     .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') { // not found is fine
+  if (error && error.code !== 'PGRST116') {
     statusEl.textContent = '❌ '+error.message; return;
   }
   activeAssignment = data || null;
@@ -106,7 +181,6 @@ async function loadActive() {
 }
 
 async function loadEligibleChores() {
-  // fetch chores in same household
   const { data: chores, error } = await supabase
     .from('chores')
     .select('*')
@@ -115,7 +189,6 @@ async function loadEligibleChores() {
 
   if (error) { statusEl.textContent = '❌ '+error.message; return; }
 
-  // fetch explicit allow/deny for this member
   const { data: rules, error: e2 } = await supabase
     .from('chore_eligibility')
     .select('chore_id, mode')
@@ -123,7 +196,6 @@ async function loadEligibleChores() {
 
   if (e2) { statusEl.textContent = '❌ '+e2.message; return; }
 
-  // filter by audience
   const byAudience = chores.filter(c => {
     if (c.audience === 'any') return true;
     if (c.audience === 'kids') return currentMember.role === 'child';
@@ -131,19 +203,23 @@ async function loadEligibleChores() {
     return false;
   });
 
-  // apply allow/deny overrides
   const ruleMap = new Map(rules.map(r => [r.chore_id, r.mode]));
+  const allowedChoreIds = new Set(rules.filter(r => r.mode === 'allow').map(r => r.chore_id));
+
   eligibleChores = byAudience.filter(c => {
     const mode = ruleMap.get(c.id);
     if (mode === 'deny') return false;
-    // if there exists at least one allow for this chore globally, this member must be allowed
-    const anyAllow = rules.some(r => r.mode === 'allow' && r.chore_id === c.id)
-      || false;
-    return mode === 'allow' || !anyAllow;
+    if (allowedChoreIds.size > 0) {
+      // if any allows exist for this member, require allow for those chores
+      return allowedChoreIds.has(c.id) || !ruleMap.has(c.id);
+    }
+    return true;
   });
 
-  // render wheel (simple chips)
-  wheelEl.innerHTML = eligibleChores.map(c => `<div class="slice">${c.title} · ${c.minutes}m</div>`).join('');
+  wheelEl.innerHTML = eligibleChores.length
+    ? eligibleChores.map(c => `<div class="slice">${c.title} · ${c.minutes}m</div>`).join('')
+    : `<span class="muted">No eligible chores found. Ask a parent to adjust eligibility.</span>`;
+
   eligibleWrap.style.display = '';
 }
 
@@ -162,6 +238,11 @@ function onSpin() {
   resultPill.textContent = `🎯 ${pickedChore.title} (${pickedChore.minutes} min)`;
   resultPill.style.display = '';
   startBtn.style.display = '';
+  // tiny voice readout
+  try {
+    const u = new SpeechSynthesisUtterance(`Your chore is ${pickedChore.title}. You have ${pickedChore.minutes} minutes.`);
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch {}
 }
 
 async function startAssignment() {
@@ -215,7 +296,6 @@ async function submitAssignment() {
     statusEl.textContent = (data.status === 'expired')
       ? '⏰ Time’s up — marked expired.'
       : '✅ Submitted for review.';
-    // reload state
     await loadActive();
   } catch(e) {
     statusEl.textContent = '❌ '+(e.message||e);
@@ -224,7 +304,7 @@ async function submitAssignment() {
   }
 }
 
-// Register the service worker for PWA/offline
+// SW for PWA/offline
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
