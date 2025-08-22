@@ -64,6 +64,21 @@
         <button id="refresh">↻ Refresh</button>
       </div>
 
+      <div id="addChore" class="row" style="display:none;flex-direction:column">
+  <div class="muted">Add a chore (parent only)</div>
+  <div class="row" style="gap:6px;flex-wrap:wrap">
+    <input id="chTitle" placeholder="Title" />
+    <input id="chMinutes" type="number" min="1" max="180" placeholder="Minutes" style="width:120px" />
+    <input id="chPoints" type="number" min="1" placeholder="Points" style="width:120px" />
+    <select id="chAudience">
+      <option value="kids">kids</option>
+      <option value="adults">adults</option>
+      <option value="any">any</option>
+    </select>
+    <button id="btnAddChore">Add</button>
+  </div>
+</div>
+
       <div id="eligible" class="row" style="display:none;flex-direction:column">
         <div class="muted">Eligible chores for <b id="who"></b>:</div>
         <div class="wheel" id="wheel"></div>
