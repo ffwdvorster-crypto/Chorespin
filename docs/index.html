@@ -7,21 +7,64 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <meta name="theme-color" content="#111111" />
   <style>
-    body{margin:0;background:#111;color:#eee;font-family:system-ui,Segoe UI,Roboto,sans-serif}
-    .wrap{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
-    button{margin-top:16px;padding:10px 14px;border-radius:10px;border:1px solid #333;background:#222;color:#fff;cursor:pointer}
-    .dim{opacity:.7}
+    :root { --bg:#0f1115; --fg:#e7e7e7; --muted:#8b8b8b; --card:#151823; --brand:#6ee7b7; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,sans-serif}
+    .wrap{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:16px}
+    .card{width:min(720px,100%);background:var(--card);border:1px solid #23263a;border-radius:16px;padding:16px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+    h1{margin:0 0 10px;font-size:24px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    select,input,button{font:inherit;padding:10px 12px;border-radius:12px;border:1px solid #2a2e42;background:#1a1e2e;color:#fff}
+    button{cursor:pointer}
+    .pill{padding:8px 10px;border-radius:999px;background:#1a1e2e;border:1px solid #2a2e42;color:#ddd}
+    .muted{color:var(--muted)}
+    .big{font-size:18px}
+    .success{color:var(--brand)}
+    .timer{font-variant-numeric:tabular-nums;font-size:28px;margin-top:6px}
+    .wheel{height:48px;display:flex;align-items:center;gap:8px;overflow:auto;padding:6px;border:1px dashed #2a2e42;border-radius:12px;background:#101321}
+    .slice{padding:6px 10px;border-radius:10px;background:#232846;color:#d6d6ff;white-space:nowrap}
+    .hr{height:1px;background:#23263a;margin:12px 0}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <main>
-      <h1 style="margin:0 0 12px">ChoreSpin</h1>
-      <p id="status" class="dim">Checking Supabase…</p>
-      <button id="voice">🔊 Test Voice</button>
-      <p class="dim" style="margin-top:14px;font-size:12px">Install to Home Screen for the best experience.</p>
-    </main>
+    <div class="card">
+      <h1>ChoreSpin <span class="muted">· MVP</span></h1>
+      <div id="authRow" class="row muted">Checking session…</div>
+
+      <div id="memberRow" class="row" style="display:none">
+        <label>Member:&nbsp;
+          <select id="memberSelect"></select>
+        </label>
+        <button id="refresh">↻ Refresh</button>
+      </div>
+
+      <div id="eligible" class="row" style="display:none;flex-direction:column">
+        <div class="muted">Eligible chores for <b id="who"></b>:</div>
+        <div class="wheel" id="wheel"></div>
+      </div>
+
+      <div id="spinRow" class="row" style="display:none">
+        <button id="spin" class="big">🎡 Spin</button>
+        <span id="result" class="pill" style="display:none"></span>
+        <button id="start" style="display:none">Start timer</button>
+      </div>
+
+      <div id="activeRow" style="display:none">
+        <div class="hr"></div>
+        <div class="muted">Active assignment</div>
+        <div id="activeTitle" class="big"></div>
+        <div id="activeTime" class="timer"></div>
+        <div class="row">
+          <button id="submit">Mark done</button>
+        </div>
+      </div>
+
+      <div id="status" class="muted" style="margin-top:8px"></div>
+    </div>
   </div>
+
   <script type="module" src="./app.js"></script>
 </body>
 </html>
