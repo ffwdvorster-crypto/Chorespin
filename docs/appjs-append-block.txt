@@ -1,0 +1,42 @@
+/* === BEGIN: ChoreSpin seed hook (adult-only) ===
+   Paste this at the very bottom of docs/app.js (or keep it in a separate file).
+   It only wires a global function and optional keyboard shortcut.
+*/
+(async () => {
+  // Bail if supabase is not ready
+  if (typeof supabase === 'undefined') return;
+
+  // Expose a tiny global to run the seed once you are signed in as an ADULT.
+  window.__seedDefaults = async function() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Sign in first');
+
+      // Try to locate your adult household
+      const { data: m, error } = await supabase
+        .from('members')
+        .select('household_id, role')
+        .eq('user_id', user.id)
+        .eq('role', 'adult')
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!m?.household_id) throw new Error('No adult household found for this user');
+
+      // Lazy import helper
+      const mod = await import('./seedHelpers.js');
+      await mod.seedDefaultsForHousehold(supabase, m.household_id);
+      alert('Starter chores + rewards loaded! (idempotent)');
+    } catch (e) {
+      alert('Seed error: ' + (e?.message || e));
+    }
+  };
+
+  // Optional: Ctrl+Alt+S to seed (you can remove this)
+  window.addEventListener('keydown', (ev) => {
+    if (ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 's') {
+      window.__seedDefaults();
+    }
+  });
+})();
+/* === END: ChoreSpin seed hook === */
