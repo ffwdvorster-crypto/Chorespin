@@ -285,6 +285,18 @@ async function startAssignment() {
   }
 }
 
+// Seed defaults for the current household (run once)
+export async function seedDefaultsForHousehold(householdId) {
+  if (!householdId) throw new Error('No householdId');
+  // chores
+  const { error: choresErr } = await supabase.rpc('create_default_chores', { p_household_id: householdId });
+  if (choresErr) throw choresErr;
+  // rewards
+  const { error: rewardsErr } = await supabase.rpc('create_default_rewards', { p_household_id: householdId });
+  if (rewardsErr) throw rewardsErr;
+  return true;
+}
+
 function runTimer(endsAt) {
   clearInterval(tmr);
   const tick = () => {
