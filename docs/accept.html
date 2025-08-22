@@ -31,6 +31,8 @@
   const statusEl = document.getElementById('status');
   const btnAccept = document.getElementById('accept');
   const done = document.getElementById('done');
+  const emailEl = document.getElementById('email');
+  const passEl = document.getElementById('password');
 
   if (!token) { statusEl.textContent = '❌ Missing invite token.'; }
 
@@ -39,25 +41,30 @@
     return !!session;
   }
 
-  async function signUp(email, password) {
+  async function doSignUp(email, password) {
     const { error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
+    // If confirmations are ON, sign-up won’t create a session.
+    // Try to sign in immediately so we have a session for the RPC.
+    await doSignIn(email, password);
   }
-  async function signIn(email, password) {
+
+  async function doSignIn(email, password) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
   }
 
   document.getElementById('signup').onclick = async () => {
     try {
-      await signUp(email.value.trim(), password.value);
-      statusEl.textContent = '✅ Account created. Now tap “Accept invite”.';
+      await doSignUp(emailEl.value.trim(), passEl.value);
+      statusEl.textContent = '✅ Signed in. Now tap “Accept invite”.';
       btnAccept.style.display = '';
     } catch(e){ statusEl.textContent = '❌ ' + (e.message || e); }
   };
+
   document.getElementById('signin').onclick = async () => {
     try {
-      await signIn(email.value.trim(), password.value);
+      await doSignIn(emailEl.value.trim(), passEl.value);
       statusEl.textContent = '✅ Signed in. Now tap “Accept invite”.';
       btnAccept.style.display = '';
     } catch(e){ statusEl.textContent = '❌ ' + (e.message || e); }
@@ -73,7 +80,7 @@
     } catch(e){ statusEl.textContent = '❌ ' + (e.message || e); }
   };
 
-  // If already signed in (e.g., parent inviting themselves), just show Accept button
+  // If already signed in, show Accept button
   ensureSession().then(signedIn => {
     if (signedIn) { btnAccept.style.display = ''; statusEl.textContent = 'Signed in. Tap “Accept invite”.'; }
   });
