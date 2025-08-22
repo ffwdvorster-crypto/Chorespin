@@ -1,414 +1,249 @@
-// normalize roles so old 'parent' still works but 'adult' is the standard
+// docs/app.js
+// ChoreSpin — unified app controller (adult/child, tabs, spin, timer, submit, rewards)
+//
+// Requirements:
+// - supabaseClient.js must export { supabase } (ES module).
+// - SQL RPCs installed (create_default_chores, create_default_rewards) if you plan to seed.
+// - Tables: households, members, chores, assignments, rewards, redemptions, chore_eligibility (optional), view member_points (optional).
+//
+// Notes:
+// - Role normalization: we treat 'adult' as the canonical role. Any legacy 'parent' is considered adult too.
+// - If your index.html does NOT have the expected placeholders, this script will render its own minimal UI in <body>.
+// - Spin lock: by default we lock locally when an assignment is started. If your RPC returns an assignment id,
+//   we store it and unlock after submit → (review by adult still happens on the adult UI).
+//
+// ---------------------------------------------------------------------------------------
+
+import { supabase } from './supabaseClient.js';
+
+// Optional seed helper (safe to ignore if not present)
+let seedHelper = null;
+try {
+  seedHelper = await import('./seedHelpers.js');
+} catch (_) { /* optional */ }
+
+// -------------------------------
+// Utilities & State
+// -------------------------------
+
 function isAdultRole(role) {
   return role === 'adult' || role === 'parent';
 }
-// docs/app.js — full replacement
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const state = {
+  user: null,
+  householdId: null,
+  myAdult: false,
+  members: [],
+  activeMemberId: null,
+  chores: [],
+  rewards: [],
+  points: 0,
+  lastAssignmentId: null, // assignment id returned by start_assignment RPC
+  spinLocked: false,
+  ttsEnabled: true,
+  tickAudio: null,
+};
 
-/* ---------- UI refs ---------- */
-const authRow      = document.getElementById('authRow');
-const loginPanel   = document.getElementById('loginPanel');
-const logoutRow    = document.getElementById('logoutRow');
-const emailEl      = document.getElementById('email');
-const passEl       = document.getElementById('password');
-const btnSignin    = document.getElementById('btnSignin');
-const btnSignup    = document.getElementById('btnSignup');
-const btnLogout    = document.getElementById('btnLogout');
-
-const memberRow    = document.getElementById('memberRow');
-const memberSelect = document.getElementById('memberSelect');
-const refreshBtn   = document.getElementById('refresh');
-
-const eligibleWrap = document.getElementById('eligible');
-const whoEl        = document.getElementById('who');
-const wheelEl      = document.getElementById('wheel');
-
-const spinRow      = document.getElementById('spinRow');
-const spinBtn      = document.getElementById('spin');
-const resultPill   = document.getElementById('result');
-const startBtn     = document.getElementById('start');
-
-const activeRow    = document.getElementById('activeRow');
-const activeTitle  = document.getElementById('activeTitle');
-const activeTime   = document.getElementById('activeTime');
-const submitBtn    = document.getElementById('submit');
-
-const statusEl     = document.getElementById('status');
-
-/* Add-chore (parent only) refs — safe if block not present */
-const addChoreWrap = document.getElementById('addChore');
-const chTitle      = document.getElementById('chTitle');
-const chMinutes    = document.getElementById('chMinutes');
-const chPoints     = document.getElementById('chPoints');
-const chAudience   = document.getElementById('chAudience');
-const btnAddChore  = document.getElementById('btnAddChore');
-
-/* ---------- state ---------- */
-let session = null;
-let members = [];
-let currentMember = null;
-let eligibleChores = [];
-let pickedChore = null;
-let activeAssignment = null;
-let tmr = null;
-
-/* ---------- init ---------- */
-init();
-
-supabase.auth.onAuthStateChange((_evt, sess) => {
-  session = sess;
-  renderAuth();
-  if (session) loadMembers();
-});
-
-async function init() {
-  const { data: s } = await supabase.auth.getSession();
-  session = s.session;
-  renderAuth();
-
-  // wire events
-  if (refreshBtn) refreshBtn.onclick = () => loadAll();
-  if (memberSelect) memberSelect.onchange = () => {
-    currentMember = members.find(m => m.id === memberSelect.value);
-    loadAll();
-  };
-  if (spinBtn) spinBtn.onclick = onSpin;
-  if (startBtn) startBtn.onclick = startAssignment;
-  if (submitBtn) submitBtn.onclick = submitAssignment;
-
-  if (btnSignin) btnSignin.onclick = handleSignin;
-  if (btnSignup) btnSignup.onclick = handleSignup;
-  if (btnLogout) btnLogout.onclick = handleLogout;
-  if (btnAddChore) btnAddChore.onclick = addChore;
-
-  if (session) await loadMembers();
-
-  // register SW
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(()=>{});
-  }
-}
-
-/* ---------- auth ---------- */
-function renderAuth() {
-  if (!session) {
-    authRow.innerHTML = `You’re not signed in. Use an <a href="./accept.html">invite link</a> or sign in below.`;
-    show(loginPanel, true);
-    show(logoutRow, false);
-    show(memberRow, false);
-    show(eligibleWrap, false);
-    show(spinRow, false);
-    show(activeRow, false);
-    show(addChoreWrap, false);
-  } else {
-    authRow.innerHTML = `Signed in as <span class="success">${session.user.email}</span>`;
-    show(loginPanel, false);
-    show(logoutRow, true);
-  }
-}
-
-async function handleSignin() {
+async function speak(text) {
+  if (!state.ttsEnabled) return;
   try {
-    statusEl.textContent = 'Signing in…';
-    const { error } = await supabase.auth.signInWithPassword({
-      email: (emailEl?.value || '').trim(),
-      password: (passEl?.value || '')
-    });
-    if (error) throw error;
-    statusEl.textContent = '✅ Signed in.';
-  } catch (e) { statusEl.textContent = '❌ ' + (e.message || e); }
-}
-
-async function handleSignup() {
-  try {
-    statusEl.textContent = 'Creating account…';
-    const email = (emailEl?.value || '').trim();
-    const password = (passEl?.value || '');
-    const { error: e1 } = await supabase.auth.signUp({ email, password });
-    if (e1) throw e1;
-    const { error: e2 } = await supabase.auth.signInWithPassword({ email, password });
-    if (e2) throw e2;
-    statusEl.textContent = '✅ Account ready. You are signed in.';
-  } catch (e) { statusEl.textContent = '❌ ' + (e.message || e); }
-}
-
-async function handleLogout() {
-  try { await supabase.auth.signOut(); statusEl.textContent = '👋 Logged out.'; }
-  catch (e) { statusEl.textContent = '❌ ' + (e.message || e); }
-}
-
-/* ---------- data loads ---------- */
-async function loadMembers() {
-  const { data, error } = await supabase
-    .from('members')
-    .select('*')
-    .eq('user_id', session.user.id);
-
-  if (error) { statusEl.textContent = '❌ '+error.message; return; }
-
-  members = data || [];
-  if (!members.length) {
-    show(memberRow, false);
-    statusEl.textContent = 'No member profile yet. Use an invite link to join a household.';
-    return;
-  }
-
-  // populate dropdown
-  show(memberRow, true);
-  memberSelect.innerHTML = members
-    .map(m => `<option value="${m.id}">${m.display_name} (${m.role})</option>`)
-    .join('');
-  currentMember = members[0];
-
-  await loadAll();
-}
-
-async function loadAll() {
-  resultPill.style.display = 'none';
-  startBtn.style.display = 'none';
-  show(spinRow, true);
-  whoEl.textContent = currentMember.display_name;
-  toggleParentUI();
-  await loadActive();
-  await loadEligibleChores();
-}
-
-async function loadActive() {
-  clearInterval(tmr);
-  const { data, error } = await supabase
-    .from('assignments')
-    .select('id, status, ends_at, chore:chore_id(title, minutes)')
-    .eq('child_member_id', currentMember.id)
-    .in('status', ['in_progress','submitted'])
-    .order('starts_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error && error.code !== 'PGRST116') { // 116 = no rows found
-    statusEl.textContent = '❌ '+error.message; return;
-  }
-
-  activeAssignment = data || null;
-  if (activeAssignment) {
-    show(activeRow, true);
-    activeTitle.textContent = `${activeAssignment.chore.title} (${activeAssignment.chore.minutes} min)`;
-    runTimer(new Date(activeAssignment.ends_at));
-    show(spinRow, false);
-  } else {
-    show(activeRow, false);
-  }
-}
-
-async function loadEligibleChores() {
-  const { data: chores, error } = await supabase
-    .from('chores')
-    .select('*')
-    .eq('household_id', currentMember.household_id)
-    .eq('active', true);
-
-  if (error) { statusEl.textContent = '❌ '+error.message; return; }
-
-  const { data: rules, error: e2 } = await supabase
-    .from('chore_eligibility')
-    .select('chore_id, mode')
-    .eq('member_id', currentMember.id);
-
-  if (e2) { statusEl.textContent = '❌ '+e2.message; return; }
-
-  // audience filter
-  const byAudience = chores.filter(c => {
-    if (c.audience === 'any') return true;
-    if (c.audience === 'kids') return currentMember.role === 'child';
-    if (c.audience === 'adults') return currentMember.role === 'parent';
-    return false;
-  });
-
-  // allow/deny rules
-  const ruleMap = new Map(rules.map(r => [r.chore_id, r.mode]));
-  const allowedSet = new Set(rules.filter(r => r.mode === 'allow').map(r => r.chore_id));
-
-  eligibleChores = byAudience.filter(c => {
-    const mode = ruleMap.get(c.id);
-    if (mode === 'deny') return false;
-    // if any allows exist for this member, require allow for those chores
-    if (allowedSet.size > 0) return allowedSet.has(c.id) || !ruleMap.has(c.id);
-    return true;
-  });
-
-  wheelEl.innerHTML = eligibleChores.length
-    ? eligibleChores.map(c => `<div class="slice">${c.title} · ${c.minutes}m</div>`).join('')
-    : `<span class="muted">No eligible chores found. Ask a parent to add/adjust chores.</span>`;
-
-  show(eligibleWrap, true);
-}
-
-/* ---------- spin & assignment ---------- */
-function pickWeighted(items) {
-  const total = items.reduce((a,c)=>a+(c.weight||1),0);
-  let r = Math.random()*total;
-  for (const c of items) { r -= (c.weight||1); if (r <= 0) return c; }
-  return items[items.length-1];
-}
-
-function onSpin() {
-  if (!eligibleChores.length) { statusEl.textContent = 'No eligible chores right now.'; return; }
-  pickedChore = pickWeighted(eligibleChores);
-  resultPill.textContent = `🎯 ${pickedChore.title} (${pickedChore.minutes} min)`;
-  resultPill.style.display = '';
-  startBtn.style.display = '';
-  // tiny read-out
-  try {
-    const u = new SpeechSynthesisUtterance(`Your chore is ${pickedChore.title}. You have ${pickedChore.minutes} minutes.`);
-    speechSynthesis.cancel(); speechSynthesis.speak(u);
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.0;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utter);
   } catch {}
 }
 
-async function startAssignment() {
-  startBtn.disabled = true;
-  try {
-    const { data, error } = await supabase.rpc('start_assignment', {
-      p_member_id: currentMember.id,
-      p_chore_id: pickedChore.id
-    });
-    if (error) throw error;
-    activeAssignment = data;
-    resultPill.style.display = 'none';
-    startBtn.style.display = 'none';
-    show(spinRow, false);
-    show(activeRow, true);
-    activeTitle.textContent = `${pickedChore.title} (${pickedChore.minutes} min)`;
-    runTimer(new Date(activeAssignment.ends_at));
-    statusEl.textContent = '👟 Timer started!';
-  } catch(e) {
-    statusEl.textContent = '❌ '+(e.message||e);
-  } finally {
-    startBtn.disabled = false;
-  }
-}
-
-// Seed defaults for the current household (run once)
-export async function seedDefaultsForHousehold(householdId) {
-  if (!householdId) throw new Error('No householdId');
-  // chores
-  const { error: choresErr } = await supabase.rpc('create_default_chores', { p_household_id: householdId });
-  if (choresErr) throw choresErr;
-  // rewards
-  const { error: rewardsErr } = await supabase.rpc('create_default_rewards', { p_household_id: householdId });
-  if (rewardsErr) throw rewardsErr;
-  return true;
-}
-// Example usage after you resolve the active household:
-await seedDefaultsForHousehold(activeHouseholdId);
-alert('Default chores and rewards loaded!');
-
-function runTimer(endsAt) {
-  clearInterval(tmr);
-  const tick = () => {
-    const ms = endsAt - new Date();
-    if (ms <= 0) { activeTime.textContent = `00:00`; clearInterval(tmr); return; }
-    const m = Math.floor(ms/60000);
-    const s = Math.floor((ms%60000)/1000);
-    activeTime.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  };
-  tick();
-  tmr = setInterval(tick, 250);
-}
-
-async function submitAssignment() {
-  if (!activeAssignment) return;
-  submitBtn.disabled = true;
-  try {
-    const { data, error } = await supabase.rpc('submit_assignment', {
-      p_assignment_id: activeAssignment.id
-    });
-    if (error) throw error;
-    statusEl.textContent = (data.status === 'expired')
-      ? '⏰ Time’s up — marked expired.'
-      : '✅ Submitted for review.';
-    await loadActive();
-  } catch(e) {
-    statusEl.textContent = '❌ '+(e.message||e);
-  } finally {
-    submitBtn.disabled = false;
-  }
-}
-
-/* ---------- parent-only: add chore ---------- */
-function toggleParentUI() {
-  if (!addChoreWrap) return;
-  show(addChoreWrap, currentMember?.role === 'parent');
-}
-
-async function addChore() {
-  try {
-    const title = (chTitle?.value || '').trim();
-    const minutes = Number(chMinutes?.value || 0);
-    const points  = Number(chPoints?.value || 10);
-    const audience = chAudience?.value || 'any';
-
-    if (!title || !minutes) { statusEl.textContent = 'Please enter title and minutes.'; return; }
-
-    const { error } = await supabase.from('chores').insert({
-      household_id: currentMember.household_id,
-      title, minutes, points, audience, active: true, weight: 1
-    });
-    if (error) throw error;
-
-    if (chTitle) chTitle.value = '';
-    if (chMinutes) chMinutes.value = '';
-    if (chPoints) chPoints.value = '';
-    statusEl.textContent = '✅ Chore added.';
-    await loadEligibleChores();
-  } catch (e) {
-    statusEl.textContent = '❌ ' + (e.message || e);
-  }
-}
-
-/* ---------- helpers ---------- */
-function show(el, on) { if (!el) return; el.style.display = on ? '' : 'none'; }
-
-/* === BEGIN: ChoreSpin seed hook (adult-only) ===
-   Paste this at the very bottom of docs/app.js (or keep it in a separate file).
-   It only wires a global function and optional keyboard shortcut.
-*/
-(async () => {
-  // Bail if supabase is not ready
-  if (typeof supabase === 'undefined') return;
-
-  // Expose a tiny global to run the seed once you are signed in as an ADULT.
-  window.__seedDefaults = async function() {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Sign in first');
-
-      // Try to locate your adult household
-      const { data: m, error } = await supabase
-        .from('members')
-        .select('household_id, role')
-        .eq('user_id', user.id)
-        .eq('role', 'adult')
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      if (!m?.household_id) throw new Error('No adult household found for this user');
-
-      // Lazy import helper
-      const mod = await import('./seedHelpers.js');
-      await mod.seedDefaultsForHousehold(supabase, m.household_id);
-      alert('Starter chores + rewards loaded! (idempotent)');
-    } catch (e) {
-      alert('Seed error: ' + (e?.message || e));
-    }
-  };
-
-  // Optional: Ctrl+Alt+S to seed (you can remove this)
-  window.addEventListener('keydown', (ev) => {
-    if (ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 's') {
-      window.__seedDefaults();
-    }
+function el(tag, attrs = {}, children = []) {
+  const n = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'class') n.className = v;
+    else if (k === 'style' && typeof v === 'object') Object.assign(n.style, v);
+    else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.substring(2), v);
+    else if (v !== undefined && v !== null) n.setAttribute(k, v);
   });
-})();
-/* === END: ChoreSpin seed hook === */
+  (Array.isArray(children) ? children : [children]).forEach(c => {
+    if (c == null) return;
+    n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  });
+  return n;
+}
+
+function setSpinLock(locked, reason = '') {
+  state.spinLocked = locked;
+  localStorage.setItem('cs_spin_locked', JSON.stringify({ locked, reason, ts: Date.now(), memberId: state.activeMemberId }));
+}
+
+function loadSpinLock() {
+  try {
+    const obj = JSON.parse(localStorage.getItem('cs_spin_locked') || '{}');
+    if (obj && obj.memberId === state.activeMemberId) {
+      state.spinLocked = !!obj.locked;
+      return;
+    }
+  } catch {}
+  state.spinLocked = false;
+}
+
+// -------------------------------
+// Auth & Bootstrap
+// -------------------------------
+
+async function bootstrap() {
+  // Tick sound
+  try {
+    state.tickAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=');
+  } catch {}
+
+  // Try existing session
+  const { data: { user } } = await supabase.auth.getUser();
+  state.user = user;
+
+  renderShell();
+
+  if (!state.user) {
+    renderAuth();
+    return;
+  }
+
+  await afterLogin();
+}
+
+async function afterLogin() {
+  // Find an adult membership (or any membership to get household)
+  const { data: myMember, error: memErr } = await supabase
+    .from('members')
+    .select('household_id, role, display_name, id')
+    .eq('user_id', state.user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (memErr) {
+    toast('Error reading membership: ' + memErr.message, true);
+    renderAuth();
+    return;
+  }
+
+  if (!myMember) {
+    toast('No membership found. Ask an adult to add you to a household.', true);
+    renderAuth();
+    return;
+  }
+
+  state.householdId = myMember.household_id;
+  state.myAdult = isAdultRole(myMember.role);
+
+  await loadMembers();
+  await selectActiveMember(myMember.id || null); // default to self if they’re a member-row; adults can switch later
+  await refreshRewardsAndPoints();
+
+  renderApp();
+}
+
+// -------------------------------
+// Data Loaders
+// -------------------------------
+
+async function loadMembers() {
+  const { data, error } = await supabase
+    .from('members')
+    .select('id, display_name, role, user_id')
+    .eq('household_id', state.householdId)
+    .order('display_name', { ascending: true });
+
+  if (error) {
+    toast('Failed to load members: ' + error.message, true);
+    state.members = [];
+  } else {
+    state.members = data || [];
+  }
+}
+
+async function loadEligibleChores(forMemberId) {
+  // Basic filter: audience matches member role or 'any', active = true
+  // Optionally respect chore_eligibility if you use it.
+  const member = state.members.find(m => m.id === forMemberId);
+  const audienceNeeded = isAdultRole(member?.role) ? ['adults', 'any'] : ['kids', 'any'];
+
+  // Fetch active chores for the household
+  const { data, error } = await supabase
+    .from('chores')
+    .select('id, title, minutes, points, audience, weight, active')
+    .eq('household_id', state.householdId)
+    .eq('active', true);
+
+  if (error) {
+    toast('Failed to load chores: ' + error.message, true);
+    state.chores = [];
+    return;
+  }
+
+  const filtered = (data || []).filter(c => audienceNeeded.includes(c.audience));
+  // TODO: honor chore_eligibility allow/deny if table is used (requires additional queries)
+  state.chores = filtered;
+}
+
+async function refreshRewardsAndPoints() {
+  // Rewards
+  const { data: rewards, error: rerr } = await supabase
+    .from('rewards')
+    .select('id, title, cost_points, active')
+    .eq('household_id', state.householdId)
+    .eq('active', true)
+    .order('cost_points', { ascending: true });
+
+  if (!rerr && rewards) state.rewards = rewards;
+
+  // Points view (member_points)
+  if (state.activeMemberId) {
+    let pts = 0;
+    try {
+      const { data: vp, error: perr } = await supabase
+        .from('member_points')
+        .select('member_id, points_balance')
+        .eq('member_id', state.activeMemberId)
+        .maybeSingle();
+      if (!perr && vp && typeof vp.points_balance === 'number') pts = vp.points_balance;
+    } catch {
+      // fallback: unknown view; leave 0
+    }
+    state.points = pts;
+  }
+}
+
+// -------------------------------
+// Spin & Assignment
+// -------------------------------
+
+function weightedRandom(items) {
+  // items: [{weight, item}]
+  const total = items.reduce((a, b) => a + (b.weight || 1), 0);
+  let r = Math.random() * total;
+  for (const it of items) {
+    r -= (it.weight || 1);
+    if (r <= 0) return it;
+  }
+  return items[items.length - 1];
+}
+
+function buildWheelSlices(chores) {
+  // Map chores to slices
+  const slices = chores.map(c => ({ label: c.title, weight: c.weight || 1, chore: c }));
+  return slices;
+}
+
+async function startAssignment(memberId, chore) {
+  // Calls RPC start_assignment(member_id, chore_id)
+  const { data, error } = await supabase.rpc('start_assignment', {
+    p_member_id: memberId,
+    p_chore_id: chore.id
+  });
+
+  if (error) throw error;
+  // Expect RPC to return assignment id or object; try common shapes
+  let id = null;
+  if (!data) {
+    // Some RPCs return void; still lock client-side
+  } else if (typeof data === 'string') {
+    id = data
