@@ -16,23 +16,47 @@
     h1{margin:0 0 10px;font-size:24px}
     .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
     select,input,button{font:inherit;padding:10px 12px;border-radius:12px;border:1px solid #2a2e42;background:#1a1e2e;color:#fff}
+    input{width:100%}
     button{cursor:pointer}
     .pill{padding:8px 10px;border-radius:999px;background:#1a1e2e;border:1px solid #2a2e42;color:#ddd}
     .muted{color:var(--muted)}
     .big{font-size:18px}
     .success{color:var(--brand)}
     .timer{font-variant-numeric:tabular-nums;font-size:28px;margin-top:6px}
-    .wheel{height:48px;display:flex;align-items:center;gap:8px;overflow:auto;padding:6px;border:1px dashed #2a2e42;border-radius:12px;background:#101321}
+    .wheel{min-height:48px;display:flex;align-items:center;gap:8px;overflow:auto;padding:6px;border:1px dashed #2a2e42;border-radius:12px;background:#101321}
     .slice{padding:6px 10px;border-radius:10px;background:#232846;color:#d6d6ff;white-space:nowrap}
     .hr{height:1px;background:#23263a;margin:12px 0}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    @media (max-width:520px){ .grid{grid-template-columns:1fr} }
+    a{color:#6ee7b7}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <h1>ChoreSpin <span class="muted">· MVP</span></h1>
+
+      <!-- Auth status + login/logout controls -->
       <div id="authRow" class="row muted">Checking session…</div>
 
+      <div id="loginPanel" style="display:none">
+        <div class="grid">
+          <input id="email" type="email" placeholder="Email" autocomplete="email">
+          <input id="password" type="password" placeholder="Password">
+        </div>
+        <div class="row">
+          <button id="btnSignin">Sign in</button>
+          <button id="btnSignup">Create account</button>
+          <a href="./accept.html" id="inviteLink" class="muted" style="align-self:center">Use an invite link</a>
+        </div>
+        <div class="muted" style="font-size:12px">Tip: parents can use email tags like <code>you+child@yourmail.com</code></div>
+      </div>
+
+      <div id="logoutRow" class="row" style="display:none">
+        <button id="btnLogout">Log out</button>
+      </div>
+
+      <!-- Member selection + chore UI -->
       <div id="memberRow" class="row" style="display:none">
         <label>Member:&nbsp;
           <select id="memberSelect"></select>
