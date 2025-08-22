@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join Household</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#111;color:#eee;margin:0}
+  main{max-width:560px;margin:10vh auto;padding:24px}
+  input,button{font:inherit;padding:10px;border-radius:10px;border:1px solid #333;background:#222;color:#fff;width:100%}
+  button{cursor:pointer;margin-top:10px}
+  .dim{opacity:.75}
+</style>
+<main>
+  <h1>Join household</h1>
+  <p id="status" class="dim">Step 1: sign in so we know who you are.</p>
+  <div id="auth">
+    <input id="email" type="email" placeholder="Email" autocomplete="email">
+    <input id="password" type="password" placeholder="Password (new or existing)">
+    <button id="signup">Create account</button>
+    <button id="signin">Sign in</button>
+    <p class="dim" style="font-size:12px;margin-top:8px">Use any email you control. Parents can use +tags (amy+james@…)</p>
+  </div>
+  <button id="accept" style="display:none">Accept invite</button>
+  <p id="done" style="display:none">✅ All set! You can close this page and open the app.</p>
+</main>
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+  import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const token = new URLSearchParams(location.search).get('token');
+  const statusEl = document.getElementById('status');
+  const btnAccept = document.getElementById('accept');
+  const done = document.getElementById('done');
+
+  if (!token) { statusEl.textContent = '❌ Missing invite token.'; }
+
+  async function ensureSession() {
+    const { data: { session } } = await supabase.auth.getSession();
+    return !!session;
+  }
+
+  async function signUp(email, password) {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
+  }
+  async function signIn(email, password) {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  }
+
+  document.getElementById('signup').onclick = async () => {
+    try {
+      await signUp(email.value.trim(), password.value);
+      statusEl.textContent = '✅ Account created. Now tap “Accept invite”.';
+      btnAccept.style.display = '';
+    } catch(e){ statusEl.textContent = '❌ ' + (e.message || e); }
+  };
+  document.getElementById('signin').onclick = async () => {
+    try {
+      await signIn(email.value.trim(), password.value);
+      statusEl.textContent = '✅ Signed in. Now tap “Accept invite”.';
+      btnAccept.style.display = '';
+    } catch(e){ statusEl.textContent = '❌ ' + (e.message || e); }
+  };
+
+  btnAccept.onclick = async () => {
+    try {
+      const { error } = await supabase.rpc('accept_invite', { p_token: token });
+      if (error) throw error;
+      statusEl.textContent = '✅ Joined!';
+      btnAccept.style.display = 'none';
+      done.style.display = '';
+    } catch(e){ statusEl.textContent = '❌ ' + (e.message || e); }
+  };
+
+  // If already signed in (e.g., parent inviting themselves), just show Accept button
+  ensureSession().then(signedIn => {
+    if (signedIn) { btnAccept.style.display = ''; statusEl.textContent = 'Signed in. Tap “Accept invite”.'; }
+  });
+</script>
