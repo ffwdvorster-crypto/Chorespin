@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ChoreSpin</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#111111" />
+  <style>
+    body{margin:0;background:#111;color:#eee;font-family:system-ui,Segoe UI,Roboto,sans-serif}
+    .wrap{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+    button{margin-top:16px;padding:10px 14px;border-radius:10px;border:1px solid #333;background:#222;color:#fff;cursor:pointer}
+    .dim{opacity:.7}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <main>
+      <h1 style="margin:0 0 12px">ChoreSpin</h1>
+      <p id="status" class="dim">Checking Supabase…</p>
+      <button id="voice">🔊 Test Voice</button>
+      <p class="dim" style="margin-top:14px;font-size:12px">Install to Home Screen for the best experience.</p>
+    </main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
