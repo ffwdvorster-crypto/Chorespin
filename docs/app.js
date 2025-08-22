@@ -1,3 +1,7 @@
+// normalize roles so old 'parent' still works but 'adult' is the standard
+function isAdultRole(role) {
+  return role === 'adult' || role === 'parent';
+}
 // docs/app.js — full replacement
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
