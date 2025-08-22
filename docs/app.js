@@ -30,6 +30,59 @@ function isAdultRole(role) {
   return role === 'adult' || role === 'parent';
 }
 
+// --- Confetti (simple DOM confetti, no libs)
+function confettiBurst() {
+  const N = 120;
+  const container = el('div', { style: {
+    position: 'fixed', inset: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: 9998
+  }});
+  document.body.appendChild(container);
+  for (let i = 0; i < N; i++) {
+    const piece = el('div', { style: {
+      position: 'absolute',
+      top: '-10px',
+      left: Math.random() * 100 + '%',
+      width: '6px',
+      height: (6 + Math.random() * 8) + 'px',
+      background: `hsl(${Math.floor(Math.random()*360)} 90% 55%)`,
+      opacity: 0.9,
+      transform: `rotate(${Math.random()*360}deg)`,
+      borderRadius: '1px'
+    }});
+    container.appendChild(piece);
+    const x = (Math.random() * 2 - 1) * 150; // drift
+    const t = 1200 + Math.random() * 900;
+    piece.animate([
+      { transform: piece.style.transform, top: '-10px' },
+      { transform: `translate(${x}px, 100vh) rotate(${Math.random()*720}deg)`, top: '100vh' }
+    ], { duration: t, easing: 'ease-out', fill: 'forwards' });
+  }
+  setTimeout(() => container.remove(), 2200);
+}
+
+// --- Voice helpers (ensure first user gesture “unlocks” audio/TTS)
+let voicesWarmed = false;
+function warmVoices() {
+  if (voicesWarmed) return;
+  try {
+    speechSynthesis.getVoices(); // populate
+    const dummy = new SpeechSynthesisUtterance('');
+    speechSynthesis.speak(dummy);
+    speechSynthesis.cancel();
+    voicesWarmed = true;
+  } catch {}
+}
+function voiceToggleUI(container) {
+  const label = el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '8px', fontSize: '12px', opacity: .8 }}, [
+    el('input', { type: 'checkbox', checked: state.ttsEnabled ? 'checked' : null, onchange: (e) => {
+      state.ttsEnabled = e.target.checked;
+      if (state.ttsEnabled) warmVoices();
+    }}),
+    'Voice on'
+  ]);
+  container.appendChild(label);
+}
+
 const state = {
   user: null,
   householdId: null,
@@ -487,6 +540,11 @@ function renderApp() {
   tabs.appendChild(makeTabBtn('Points', 'points'));
   tabs.appendChild(makeTabBtn('Bonus', 'bonus'));
 
+  // add voice toggle (and warm on first interaction)
+voiceToggleUI(document.getElementById('cs-tabs'));
+document.getElementById('cs-tabs').addEventListener('click', warmVoices, { once: true });
+
+  
   if (state.myAdult) {
     const seedBtn = el('button', { style: { marginLeft: 'auto', padding: '8px 10px', border: '1px solid #ccc', borderRadius: '10px' }, onclick: seedStarterPack }, 'Load Starter Pack');
     tabs.appendChild(seedBtn);
@@ -557,6 +615,7 @@ function renderWheelTab(main) {
       pick.then(async (slice) => {
         try {
           await speak(`${slice.chore.title}. Estimated ${slice.chore.minutes} minutes.`);
+confettiBurst(); // 
           await startAssignment(state.activeMemberId, slice.chore);
           info.textContent = `Assigned: ${slice.chore.title} · ${slice.chore.minutes}m · ${slice.chore.points}pts`;
           toast(`Assignment started: ${slice.chore.title}`);
