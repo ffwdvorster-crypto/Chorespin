@@ -101,6 +101,44 @@ async function bootstrap() {
   state.user = user;
 
   renderShell();
+  function renderShell() {
+  if (document.getElementById('cs-root')) return;
+
+  const root = el('div', { id: 'cs-root', style: { maxWidth: '900px', margin: '0 auto', padding: '12px' } });
+
+  const header = el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' } }, [
+    el('img', { id: 'cs-logo', src: './assets/logo-chorespin-light.png', alt: 'ChoreSpin', style: { height: '28px' } }),
+    el('div', { id: 'cs-user-pill', style: { marginLeft: 'auto', fontSize: '14px', opacity: .8 } }, ['…']),
+    el('button', {
+      id: 'cs-signout',
+      style: { padding: '6px 10px', border: '1px solid #ccc', borderRadius: '10px', cursor: 'pointer' },
+      onclick: async () => {
+        await supabase.auth.signOut();
+        location.reload();
+      }
+    }, 'Sign out')
+  ]);
+
+  const tabbar = el('div', { id: 'cs-tabs', style: {
+    display: 'flex', gap: '8px', borderBottom: '1px solid #ddd', paddingBottom: '8px', marginBottom: '12px', flexWrap: 'wrap'
+  }});
+
+  const main = el('div', { id: 'cs-main' });
+
+  document.body.prepend(root);
+  root.appendChild(header);
+  root.appendChild(tabbar);
+  root.appendChild(main);
+
+  // Dark-mode logo swap
+  try {
+    const img = document.getElementById('cs-logo');
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const swap = () => img.src = mq.matches ? './assets/logo-chorespin-dark.png' : './assets/logo-chorespin-light.png';
+    swap(); mq.addEventListener('change', swap);
+  } catch {}
+}
+
 
   if (!state.user) {
     renderAuth();
