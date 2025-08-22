@@ -13,6 +13,27 @@
 //   we store it and unlock after submit → (review by adult still happens on the adult UI).
 //
 // ---------------------------------------------------------------------------------------
+// Inject minimal styles for tabs/cards if not present
+(function injectChoreSpinStyles(){
+  const id = 'cs-autostyles';
+  if (document.getElementById(id)) return;
+  const css = `
+  :root { color-scheme: light dark; }
+  #cs-tabs { background: color-mix(in oklab, Canvas, CanvasText 3%); border-radius: 12px; padding: 8px; }
+  #cs-tabs .cs-tab-btn { background: color-mix(in oklab, Canvas, CanvasText 2%); }
+  #cs-tabs .cs-tab-btn:hover { filter: brightness(1.05); }
+  .card {
+    border: 1px solid color-mix(in oklab, CanvasText, transparent 85%);
+    border-radius: 12px; padding: 14px; margin: 12px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    background: color-mix(in oklab, Canvas, CanvasText 2%);
+  }
+  h3 { margin: 0 0 10px 0; font-size: 18px; }
+  .muted { opacity: .75; font-size: 14px; }
+  `;
+  const s = document.createElement('style');
+  s.id = id; s.textContent = css; document.head.appendChild(s);
+})();
 
 import { supabase } from './supabaseClient.js';
 
