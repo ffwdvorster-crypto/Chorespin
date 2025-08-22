@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ChoreSpin — Parent Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+    body { margin: 0; padding: 16px; }
+    header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+      border-bottom: 1px solid #ddd; padding-bottom: 12px;
+    }
+    header img { height: 28px; }
+    .pill { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid #ccc; }
+    .ok { background: #e6ffed; border-color: #b7f5c7; }
+    .warn { background: #fff7e6; border-color: #ffe0a3; }
+    .err { background: #ffe9e9; border-color: #ffc1c1; }
+    .card {
+      border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    [data-parent-controls] { display: flex; flex-direction: column; gap: 8px; }
+    .muted { opacity: .7; font-size: 14px; }
+    a.button {
+      display: inline-block; text-decoration: none; padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <!-- Swap logos automatically based on theme if you added them -->
+    <a href="./"><img id="logo" src="./assets/logo-chorespin-light.png" alt="ChoreSpin"></a>
+    <script>
+      (function () {
+        const img = document.getElementById('logo');
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          img.src = './assets/logo-chorespin-dark.png';
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+          img.src = e.matches ? './assets/logo-chorespin-dark.png' : './assets/logo-chorespin-light.png';
+        });
+      }());
+    </script>
+    <div class="pill ok">Adult tools</div>
+    <a class="button" href="./">Home</a>
+  </header>
+
+  <div class="card">
+    <h2>Parent / Adult Controls</h2>
+    <p class="muted">This page is only for household adults. You’ll find utilities here while we build the full review UI.</p>
+  </div>
+
+  <div class="card">
+    <h3>Starter Pack</h3>
+    <p>Click once to seed default chores & rewards for your household. Safe to click again (it won’t duplicate).</p>
+    <div data-parent-controls></div>
+    <p id="seedStatus" class="muted"></p>
+  </div>
+
+  <div class="card">
+    <h3>Account</h3>
+    <div id="authInfo" class="muted">Checking sign-in…</div>
+  </div>
+
+  <!-- Your existing Supabase client (must already exist in docs/) -->
+  <script type="module">
+    import { supabase } from './supabaseClient.js';
+    import { initParentSeedButton } from './parentSeedButton.js';
+
+    const authInfo = document.getElementById('authInfo');
+    const seedStatus = document.getElementById('seedStatus');
+
+    async function requireAdult() {
+      // 1) Must be signed in
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) {
+        authInfo.textContent = 'Not signed in. Please go back to Home and log in.';
+        throw new Error('Not signed in');
+      }
+
+      // 2) Must be an adult in at least one household
+      const { data: membership, error: memErr } = await supabase
+        .from('members')
+        .select('household_id, role, display_name')
+        .eq('user_id', user.id)
+        .eq('role', 'adult')
+        .limit(1)
+        .maybeSingle();
+
+      if (memErr) throw memErr;
+      if (!membership?.household_id) {
+        authInfo.innerHTML = 'Signed in, but not an <strong>adult</strong> in any household.';
+        throw new Error('Not an adult');
+      }
+
+      authInfo.innerHTML = `Signed in as <strong>${user.email ?? membership.display_name ?? 'Adult'}</strong>. Household ready.`;
+      return membership.household_id;
+    }
+
+    // Provide a resolver function to the seed button module
+    async function getActiveHouseholdId() {
+      try {
+        const id = await requireAdult();
+        seedStatus.textContent = 'Household detected. You can load the Starter Pack.';
+        return id;
+      } catch (e) {
+        seedStatus.textContent = e.message || 'Access check failed.';
+        throw e;
+      }
+    }
+
+    // Inject the button
+    initParentSeedButton(getActiveHouseholdId, supabase);
+  </script>
+</body>
+</html>
